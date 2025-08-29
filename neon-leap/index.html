@@ -27,21 +27,21 @@
 	<script>
 		var buildUrl = "Build";
 		var versionFolder = "25082201/";
-		buildUrl = "https://games.azgame.io/game/neon-leap/"+versionFolder + buildUrl;
+		buildUrl = "versionFolder + buildUrl;
 		var loaderUrl = "/whatver/neon-leap/neon-leap-v25082201.loader.js";
 		var config = {
 			dataUrl: "/whatver/neon-leap/neon-leap-v25082201.data.unityweb",
 			frameworkUrl: "/whatver/neon-leap/neon-leap-v25082201.framework.js.unityweb",
 			codeUrl: "/whatver/neon-leap/neon-leap-v25082201.wasm.unityweb",
 			streamingAssetsUrl: versionFolder+"StreamingAssets",
-			companyName: "azgames.io",
+			companyName: "SigmaTV",
 			productName: "Neon Leap",
 			productVersion: "25082201",
 			pubId: ""
 		};
 		config.gameId = "neon-leap";
 		config.eventLog=true;
-		config.buildAPI = "https://event.azgame.io/apiaz/event";
+		config.buildAPI = "";
 		let currentDate = new Date();
 		let endLogDate = new Date("2025-09-09T09:22:44.355Z");
 		if(currentDate>endLogDate){
@@ -65,7 +65,7 @@
 		}
 		
 	</script>
-	<script id="gmsoft-jssdk" src="https://games.azgame.io/lib/gmsoftsdk_v5.js"></script>
+	<script id="gmsoft-jssdk" src="gmsoftsdk_v5.js"></script>
 </head>
 
 <body>

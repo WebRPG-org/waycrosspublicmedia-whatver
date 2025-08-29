@@ -26,9 +26,9 @@
 	 
 	<script>
 		var buildUrl = "Build";
-		var versionFolder = "25082201/";
-		buildUrl = "versionFolder + buildUrl;
-		var loaderUrl = "/whatver/neon-leap/neon-leap-v25082201.loader.js";
+var versionFolder = "25082201/";
+buildUrl = versionFolder + buildUrl; // <-- correctly concatenate
+var loaderUrl = "/whatver/neon-leap/neon-leap-v25082201.loader.js";
 		var config = {
 			dataUrl: "/whatver/neon-leap/neon-leap-v25082201.data.unityweb",
 			frameworkUrl: "/whatver/neon-leap/neon-leap-v25082201.framework.js.unityweb",

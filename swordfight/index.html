@@ -54,18 +54,17 @@
         }
         updateBannerVisibility();
       }
-
-      var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/Swordfight!! Chess Update 4.loader.js";
-      var config = {
-        arguments: [],
-        dataUrl: buildUrl + "/Swordfight!! Chess Update 4.data",
-        frameworkUrl: buildUrl + "/Swordfight!! Chess Update 4.framework.js",
-        codeUrl: buildUrl + "/Swordfight!! Chess Update 4.wasm",
-        streamingAssetsUrl: "StreamingAssets",
-        companyName: "Studio-19",
-        productName: "Swordfight",
-        productVersion: "0.5",
+		var buildUrl = "Build";
+var versionFolder = "25082201/";
+buildUrl = versionFolder + buildUrl; // <-- correctly concatenate
+var loaderUrl = "/whatver/neon-leap/neon-leap-v25082201.loader.js";
+		var config = {
+			dataUrl: "/whatver/neon-leap/neon-leap-v25082201.data.unityweb",
+			frameworkUrl: "/whatver/neon-leap/neon-leap-v25082201.framework.js.unityweb",
+			codeUrl: "/whatver/neon-leap/neon-leap-v25082201.wasm.unityweb",
+			streamingAssetsUrl: versionFolder+"StreamingAssets",
+			companyName: "SigmaTV",
+			productName: "Neon Leap",
         showBanner: unityShowBanner,
       };
 

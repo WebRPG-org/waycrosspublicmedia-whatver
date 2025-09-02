@@ -9,12 +9,12 @@
 	"orientation": "landscape",
 	"icons": [
 		{
-			"src": "/icons/icon_192.png?v=21e5b1ef",
+			"src": "/whatver/therace/icons/icon_192.png?v=21e5b1ef",
 			"type": "image/png",
 			"sizes": "192x192"
 		},
 		{
-			"src": "/icons/icon_512.png?v=21e5b1ef",
+			"src": "/whatver/therace/icons/icon_512.png?v=21e5b1ef",
 			"type": "image/png",
 			"sizes": "512x512"
 		}

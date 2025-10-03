@@ -700,7 +700,7 @@
 *  Translating Strings in Variables
 * --------------------------------------------------------------------------
 *
-* String in variables can also be translated with a lookup-based approach.
+* Strings in variables can also be translated with a lookup-based approach.
 * In the "Variables" section, you can define strings and their translations,
 * and those strings will be converted for display purposes only.
 *
@@ -1260,6 +1260,22 @@
 * that have external language settings.
 *
 *
+* ----------------------------------------------------------------------
+*  Miscellaneous Information
+* ----------------------------------------------------------------------
+*
+* If you want to change the current language in some way other than
+* letting the user change it in the Options menu - for instance, making
+* a custom language select screen - you can simply set the language
+* in a Script command or plugin file like so:
+* ConfigManager.language = "EN";
+*
+* All update processes associated with changing language are triggered
+* even when setting ConfigManager.language directly like this,
+* so everything should behave generally the same as it does when
+* the user changes the language in the Options menu.
+*
+*
 * ======================================================================
 *                                Credits
 * ======================================================================
@@ -1269,7 +1285,32 @@
 * Special thanks to SumRndmDde's Translation Engine plugin,
 * which was partially referred to for the creation of this plugin.
 *
-* Current Version: 1.00
+* Current Version: 1.02a
+*
+* --- Changelog ---
+*
+* - Version 1.02a -
+* Fixed an oversight that caused individual System and Classes
+* language scripts to not be loaded.
+*
+* - Version 1.02 -
+* Reworked choice text localization, adding built-in support for two plugins
+* that combine consecutive choice commands into one big list.
+* It should also be relatively easy to add support for other plugins
+* that affect choices, by calling the localizeChoiceCommand function
+* before using that command's parameters.
+*
+* - Version 1.01 -
+* Changed Base Text Export to leave Language Display Name core setting blank.
+* In addiiton, if Language Display Name is blank, it defaults to language code.
+*
+* Since it's common to rename base language scripts to start a new language,
+* this helps avoid the confusing situation of language names showing as
+* the default language until manually changed, making it seem as if
+* the option is not actually changing.
+*
+* - Version 1.00 -
+* First official release.
 */
 
 /******************************
@@ -1878,7 +1919,7 @@ CTE.loadLanguage = function(language, cteFallback = false, checkingAddedLanguage
 			else { // Load individual databases
 				var databasesFolder = languageFolder + "Databases/";
 				if (CTE.directoryExists(databasesFolder)) {
-					var databases = [ "Actors", "Skills", "Items", "Weapons", "Armors", "Enemies", "States", "Extra" ];
+					var databases = [ "Actors", "Classes", "Skills", "Items", "Weapons", "Armors", "Enemies", "States", "System", "Extra" ];
 					var databaseFile = "";
 					for (var i = 0; i < databases.length; i++) {
 						databaseFile = databases[i] + ".txt";
@@ -2488,6 +2529,7 @@ CTE.getPositionString = function(position, includeCommand) {
 		return fileStr + commandStr;
 	}
 	else if (position["file"] === "actors"
+	|| position["file"] === "classes"
 	|| position["file"] === "skills"
 	|| position["file"] === "items"
 	|| position["file"] === "weapons"
@@ -2670,31 +2712,8 @@ CTE.Game_Interpreter_command101 = Game_Interpreter.prototype.command101;
 		switch (this.nextEventCode()) {
 		case 102: // Show Choices
 			this._index++;
-			
-			commandGroupId = CTE.getCommandGroupId(position, "choice");
-			commandNum = CTE.getCommandNum(this._list, this._index);
-			
-			var parameters = [...this.currentCommand().parameters];
-			if (CTE.commandDataExists(file, commandGroupId, commandNum)) {
-				var commandData = CTE.getCommandData(file, commandGroupId, commandNum);
-				if (commandData === null) { // Data exists, but no valid condition met
-					CTE.warn("No valid condition found for " + CTE.getPositionString(position) + ", Choice " + (commandNum + 1) + ".", 2);
-				}
-				else {
-					var choices = commandData.split("\n");
-					if (choices.length == parameters[0].length) {
-						parameters[0] = choices;
-					}
-					else {
-						CTE.warn("Choice counts do not match in " + CTE.getPositionString(position) + ", Choice " + (commandNum + 1) + ".", 2);
-					}
-				}
-			}
-			else {
-				CTE.warn("No translation data found for " + CTE.getPositionString(position) + ", Choice " + (commandNum + 1) + ".", 2);
-			}
-			
-			this.setupChoices(parameters);
+			CTE.localizeChoiceCommand(this);
+			this.setupChoices(this.currentCommand().parameters);
 			break;
 		case 103: // Input Number
 			this._index++;
@@ -2711,22 +2730,16 @@ CTE.Game_Interpreter_command101 = Game_Interpreter.prototype.command101;
 	return false;
 };
 
-// Localize choice text.
-CTE.Game_Interpreter_command102 = Game_Interpreter.prototype.command102;
-Game_Interpreter.prototype.command102 = function() {
-	if (ConfigManager.isBaseLanguage()) { // In base language, use original function
-		return CTE.Game_Interpreter_command102.apply(this, arguments);
-	}
-	
-	if (!$gameMessage.isBusy()) {
-		var position = CTE.getPositionData(this);
+// Localize strings for the given choice command (or by default, the _index) in the given Game_Interpreter.
+CTE.localizeChoiceCommand = function(interpreter, index = -1) {
+	if (!ConfigManager.isBaseLanguage()) {
+		if (index == -1) index = interpreter._index;
+		var position = CTE.getPositionData(interpreter);
 		var file = position["file"];
-		if (file === "") return CTE.Game_Interpreter_command102.apply(this, arguments); // No context for command
+		if (file === "") return; // No context for command
 		var commandGroupId = CTE.getCommandGroupId(position, "choice");
-		var commandNum = CTE.getCommandNum(this._list, this._index);
+		var commandNum = CTE.getCommandNum(interpreter._list, index);
 		
-		var parameters = [...this._params];
-		var parametersChanged = false;
 		if (CTE.commandDataExists(file, commandGroupId, commandNum)) {
 			var commandData = CTE.getCommandData(file, commandGroupId, commandNum);
 			if (commandData === null) { // Data exists, but no valid condition met
@@ -2734,9 +2747,8 @@ Game_Interpreter.prototype.command102 = function() {
 			}
 			else {
 				var choices = commandData.split("\n");
-				if (choices.length == parameters[0].length) {
-					parameters[0] = choices;
-					parametersChanged = true;
+				if (choices.length == interpreter._list[index].parameters[0].length) {
+					interpreter._list[index].parameters[0] = choices;
 				}
 				else {
 					CTE.warn("Choice counts do not match in " + CTE.getPositionString(position) + ", Choice " + (commandNum + 1) + ".", 2);
@@ -2747,18 +2759,36 @@ Game_Interpreter.prototype.command102 = function() {
 			CTE.warn("No translation data found for " + CTE.getPositionString(position) + ", Choice " + (commandNum + 1) + ".", 2);
 		}
 	}
-	
-	// If parameters were not changed, go to original function.
-	if (!parametersChanged) return CTE.Game_Interpreter_command102.apply(this, arguments);
-	
-	// Otherwise, do original code with updated parameters.
-	if (!$gameMessage.isBusy()) {
-		this.setupChoices(parameters);
-		this._index++;
-		this.setWaitMode("message");
-	}
-	return false;
 };
+
+// Localize regular choice commands.
+CTE.Game_Interpreter_command102 = Game_Interpreter.prototype.command102;
+Game_Interpreter.prototype.command102 = function() {
+	CTE.localizeChoiceCommand(this);
+	return CTE.Game_Interpreter_command102.apply(this, arguments);
+};
+
+// Localize choice commands when using plugins that combine multiple ones together.
+// HIME_LargeChoices by HimeWorks
+if (typeof Game_Interpreter.prototype.combineChoices !== "undefined") {
+	CTE.Game_Interpreter_combineChoices = Game_Interpreter.prototype.combineChoices;
+	Game_Interpreter.prototype.combineChoices = function(params) {
+		// Localize choice command at current index, and any consecutive choice commands.
+		var index = this._index;
+		while (index < this._list.length) {
+			var cmd = this._list[index];
+			var nextCmd = this._list[index + 1];
+			if (cmd.indent === this._indent && cmd.code === 404 && (nextCmd === undefined || nextCmd.code !== 102)) {
+				break;
+			}
+			else if (cmd.code === 102) {
+				CTE.localizeChoiceCommand(this, index);
+			}
+			index++;
+		}
+		return CTE.Game_Interpreter_combineChoices.apply(this, arguments);
+	};
+}
 
 // Localize scrolling text.
 CTE.Game_Interpreter_command105 = Game_Interpreter.prototype.command105;
@@ -3198,12 +3228,15 @@ ImageManager.loadBitmap = function(folder, filename, hue, smooth) {
 			existsInList = true;
 		}
 		
+		var encrypted = typeof Decrypter !== "undefined"? !!Decrypter.hasEncryptedImages : false;
+		
 		if (Utils.isNwjs()) { // Directly check if file exists
 			var fs = require("fs");
 			var path = require("path");
-			var imageInLanguageSubfolder = path.join(path.dirname(process.mainModule.filename), folder + language + "/" + filename + (!Decrypter.hasEncryptedImages? ".png" : ".rpgmvp"));
+			var imageInLanguageSubfolder = path.join(path.dirname(process.mainModule.filename), folder + language + "/" + filename + (!encrypted? ".png" : ".rpgmvp"));
 			if (fs.existsSync(imageInLanguageSubfolder)) {
-				if (!existsInList && CTE.MakeImageList) { // New file discovered; add it to list and re-save
+				if (!existsInList && CTE.isPlaytest() && CTE.MakeImageList) { // New file discovered; add it to list and re-save
+					CTE.translatedImageList[language.toLowerCase()] = CTE.translatedImageList[language.toLowerCase()] || [];
 					CTE.translatedImageList[language.toLowerCase()].push(imgSubfolder + filename);
 					CTE.saveTranslatedImagesFile();
 				}
@@ -3235,7 +3268,7 @@ ImageManager.loadBitmap = function(folder, filename, hue, smooth) {
 			if (Utils.isNwjs()) { // Directly check if file exists
 				var fs = require("fs");
 				var path = require("path");
-				var altImage = path.join(path.dirname(process.mainModule.filename), folder + "/" + newName + (!Decrypter.hasEncryptedImages? ".png" : ".rpgmvp"));
+				var altImage = path.join(path.dirname(process.mainModule.filename), folder + "/" + newName + (!encrypted? ".png" : ".rpgmvp"));
 				if (fs.existsSync(altImage)) {
 					if (!existsInList && CTE.MakeImageList) { // New file discovered; add it to list and re-save
 						CTE.translatedImageList[language.toLowerCase()].push(imgSubfolder + newName);
@@ -3515,7 +3548,8 @@ if (!CTE.LockLanguage) {
 				return CTE.BaseLanguageDisplayName;
 			}
 			else if (CTE.dataExistsForLanguage(value, "extra", "LanguageDisplayName")) {
-				return CTE.getDataForLanguage(value, "extra", "LanguageDisplayName");
+				var displayName = CTE.getDataForLanguage(value, "extra", "LanguageDisplayName");
+				return displayName !== ""? displayName : value; // Default to language code if left blank
 			}
 			else {
 				return value;
@@ -4782,8 +4816,8 @@ CTE.exportExtraSection = function() {
 	
 	if (CTE.exportingBase) {
 		content.text += "// Core Language Settings\n\n"
-			+ "// The name of the language, as displayed in the options menu.\n"
-			+ "LanguageDisplayName=" + CTE.BaseLanguageDisplayName + "\n\n"
+			+ "// The name of the language, as displayed in the options menu. (Defaults to language code if blank.)\n"
+			+ "LanguageDisplayName=\n\n"
 			+ "// The name of the \"Language\" option in the options menu.\n"
 			+ "LanguageOptionName=" + CTE.BaseLanguageOptionName + "\n\n"
 			+ "// The default font for the language. (Usually GameFont. Will use standard font of base game if not defined.)\n"
@@ -4822,6 +4856,12 @@ CTE.exportExtraSection = function() {
 					var language = CTE.orderedLanguages[i];
 					if (i == 0) { // Base language
 						content.table += CTE.writeForTable(keyOrigName + "=");
+						switch (key) { // Actually write base values for core settings
+							case "languagedisplayname": content.table += CTE.BaseLanguageDisplayName; break;
+							case "languageoptionname": content.table += CTE.BaseLanguageOptionName; break;
+							case "defaultfont": content.table += "GameFont"; break;
+							case "messagespeed": content.table += CTE.BaseMessageSpeed; break;
+						}
 					}
 					else { // Other languages
 						var value = CTE.getString(key, "<<<NOT FOUND>>>", language);
@@ -5948,6 +5988,11 @@ CTE.commandExportHandlerPrefix = function(command) {
 	if (command.code == 231) { // Show Picture: Keep track of character talk sprites to note those shown before messages
 		if (command.parameters[1].startsWith("cara")) {
 			CTE.talkSpriteName = CTE.getTalkSpriteDescription(command.parameters[1]);
+			
+			// If running description check, warn if there is no existing description for this name.
+			if (typeof CTE.checkingExpressionDescriptions !== "undefined" && CTE.checkingExpressionDescriptions) {
+				CTE.getTalkSpriteDescription(command.parameters[1], true);
+			}
 		}
 	}
 	
@@ -5964,7 +6009,7 @@ CTE.commandExportHandlerPrefix = function(command) {
 			
 			// If running completeness check, warn if there is no existing translation for this name.
 			if (typeof CTE.checkingNameCompleteness !== "undefined" && CTE.checkingNameCompleteness) {
-				if (CTE.getString("Name_" + name, "") === "") {
+				if (name !== "" && CTE.getString("Name_" + name, "") === "") {
 					CTE.warn("Missing translation for name: " + name, 0);
 				}
 			}
@@ -6035,8 +6080,8 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 	
 	try {
 		var numbers = picture.replace("cara", "").split("-");
-		var characterID = parseInt(numbers[0], 10);
-		var expressionID = numbers.length > 1? parseInt(numbers[1], 10) : 0;
+		var characterID = numbers[0].match(/[a-z]/gi)? numbers[0] : parseInt(numbers[0], 10); // Just use string if letters are found, otherwise parse as int
+		var expressionID = numbers.length > 1? (numbers[1].match(/[a-z]/gi)? numbers[1]: parseInt(numbers[1], 10)) : 0; // Just use string if letters are found, otherwise parse as int; 0 if not defined
 	}
 	catch (e) {
 		return "";
@@ -6079,6 +6124,32 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 29: expression = "Smug smile"; break;
 				case 31: expression = "Serious look"; break;
 				case 32: expression = "Serious look, sweat"; break;
+				case 34: expression = "Grown up, default"; break;
+				case 35: expression = "Grown up, yell"; break;
+				case 37: expression = "Grown up, surprise"; break;
+				case 38: expression = "Grown up, smug smile"; break;
+				case 40: expression = "Casual, default"; break;
+				case 41: expression = "Casual, nervous sweat"; break;
+				case 42: expression = "Casual, yell"; break;
+				case 43: expression = "Casual, smirk"; break;
+				case 44: expression = "Casual, surprise"; break;
+				case 45: expression = "Casual, smug smile"; break;
+				case 46: expression = "Casual, closed-eyes smile"; break;
+				case 47: expression = "Casual, wink"; break;
+				case 48: expression = "Casual, groan"; break;
+				case 49: expression = "Casual, pointing"; break;
+				case 51: expression = "Casual, outstretched open hand"; break;
+				case 52: expression = "Casual, glance to side with blush"; break;
+				case 53: expression = "Casual, glance to side, smile"; break;
+				case 54: expression = "Casual, glance to side, sad"; break;
+				case 55: expression = "Casual, glance to side, sad, mouth open"; break;
+				case 56: case 59: expression = "Casual, glance to side, sad, mouth shut"; break; // 56 and 59 are identical
+				case 57: expression = "Casual, sad"; break;
+				case 58: expression = "Casual, sad, eyebrows lowered"; break;
+				case 60: expression = "Casual, sad, eyebrows lowered, teeth clenched"; break;
+				case 61: expression = "Casual, closed-eyes sigh"; break;
+				case 62: expression = "Young, kendo gear"; break;
+				case "s": expression = "Blurry silhouette"; break;
 			}
 			break;
 		
@@ -6116,6 +6187,27 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 33: expression = "Disappearing 3"; break;
 				case 34: expression = "Disappearing 4"; break;
 				case 35: expression = "Folded arms smile"; break;
+				case 37: expression = "Folded arms smile"; break;
+				case 38: expression = "Folded arms curious"; break;
+				case 39: expression = "Folded arms groan"; break;
+				case 40: expression = "Wide-eyed surprise, clenched teeth"; break;
+				case 41: expression = "Wide-eyed surprise, mouth open"; break;
+				case 42: expression = "Casual, default"; break;
+				case 43: expression = "Casual, eyes-open smile"; break;
+				case 44: expression = "Casual, eyes-closed smile"; break;
+				case 45: expression = "Casual, serious look"; break;
+				case 46: expression = "Casual, furrowed brow"; break;
+				case 47: expression = "Casual, upset groan"; break;
+				case 48: expression = "Casual, wide-eyed surprise, clenched teeth"; break;
+				case 49: expression = "Casual, wide-eyed surprise, mouth open"; break;
+				case 50: expression = "Casual, looking down nervously, mouth open"; break;
+				case 51: expression = "Casual, blank eyes, mouth open"; break;
+				case 52: expression = "Casual, upset groan with grave look"; break;
+				case 53: expression = "Casual, embarrassed closed-eyes wide smile"; break;
+				case 54: expression = "Casual, worried, sweating"; break;
+				case 55: expression = "Casual, folded arms smile"; break;
+				case 56: expression = "Casual, folded arms groan"; break;
+				case 57: expression = "Casual, folded arms curious"; break;
 			}
 			break;
 		
@@ -6196,6 +6288,7 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 29: expression = "Upset look, horrified face, mouth open"; break;
 				case 30: expression = "Upset look, mouth closed"; break;
 				case 31: expression = "Looking down to side, blushing, covering face"; break;
+				case "k": expression = "Inverted silhouette"; break;
 			}
 			break;
 		
@@ -6226,6 +6319,7 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 22: expression = "Holding gun, clenched teeth, freaked-out look"; break;
 				case 24: expression = "Touching cap, face in shadow, grin with sweat"; break;
 				case 25: expression = "Fists-balled shout with sweat"; break;
+				case "k": expression = "Inverted silhouette"; break;
 			}
 			break;
 		
@@ -6270,6 +6364,7 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 36: expression = "Hands out, mouth open, angry eyes, grim face"; break;
 				case 37: expression = "Turned to side, clutching head in hands"; break;
 				case 38: expression = "Afraid and spiky"; break;
+				case "k": expression = "Inverted silhouette"; break;
 			}
 			break;
 		
@@ -6318,6 +6413,42 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 			}
 			break;
 		
+			case "6B":
+			character = "レコ"; // Child
+			switch (expressionID) {
+				case 1: expression = "Child, default"; break;
+				case 2: expression = "Child, mouth open"; break;
+				case 3: expression = "Child, grin"; break;
+				case 4: expression = "Child, closed-eyes smile"; break;
+				case 5: expression = "Child, surprise"; break;
+				case 6: expression = "Child, angry"; break;
+				case 7: expression = "Child, raised eyebrows, mouth closed"; break;
+				case 8: expression = "Child, shout, sweatdrop"; break;
+				case 9: expression = "Child, surprise, sweatdrop"; break;
+				case 10: expression = "Child, serious"; break;
+				case 11: expression = "Child, serious, gritted teeth"; break;
+				case 12: expression = "Child, unamused"; break;
+				case 13: expression = "Child, unamused, gritted teeth"; break;
+				case 14: expression = "Child, sad"; break;
+				case 15: expression = "Child, sad, gritted teeth"; break;
+				case 16: expression = "Child, mouth open"; break;
+				case 17: expression = "Child, shout"; break;
+			}
+			break;
+		
+			case "6C":
+			character = "レコ"; // Band
+			switch (expressionID) {
+				case 1: expression = "Band getup, smile"; break;
+				case 2: expression = "Band getup, mouth open"; break;
+				case 3: expression = "Band getup, default"; break;
+				case 4: expression = "Band getup, scowl"; break;
+				case 5: expression = "Band getup, surprise, sweating"; break;
+				case 6: expression = "Band getup, glare"; break;
+				case 7: expression = "Band getup, irritated glare"; break;
+			}
+			break;
+		
 		case 7:
 			character = "ナオ";
 			switch (expressionID) {
@@ -6348,6 +6479,7 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 25: expression = "Hand on chest, relieved smile"; break;
 				case 26: expression = "Looking up and to side"; break;
 				case 27: expression = "Looking up and to side, sweatdrop"; break;
+				case "k": expression = "Inverted silhouette"; break;
 			}
 			break;
 		
@@ -6378,6 +6510,36 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 22: expression = "Holding new apron with smile (no collar/utensils)"; break;
 				case 23: expression = "Hallucination"; break;
 				case 24: expression = "Past appearance as assassin"; break;
+				case 25: expression = "Hand on chin, looking to side, sweatdrop"; break;
+				case 26: expression = "Default look with grim face and sweat"; break;
+				case 27: expression = "Holding spatula in front of eye"; break;
+				case 28: expression = "Lowering head and eyes slightly"; break;
+				case 29: expression = "Hand on chin, looking to side, glancing toward camera"; break;
+				case 30: expression = "Lowering head and eyes slightly, smile"; break;
+				case "30B": expression = "Lowering head and eyes slightly, smile (blue apron)"; break;
+				case 31: expression = "Smile"; break;
+				case 32: expression = "Eyes darting to side"; break;
+				case 33: expression = "Blank white eyes"; break;
+				case 34: expression = "Concentrating, holding frying pan and spatula"; break;
+				case 35: expression = "Wearing bucket on head"; break;
+				case 36: expression = "Young, default"; break;
+				case 37: expression = "Young, narrowed eyes"; break;
+				case 38: expression = "Young, surprise"; break;
+				case 39: expression = "Young, furrowed brow"; break;
+				case 40: expression = "Young, smile"; break;
+				case 41: expression = "Young, closed-eyes smile"; break;
+				case 42: expression = "Young, closed-eyes smile, mouth open"; break;
+				case 43: expression = "Young, sad"; break;
+				case 44: expression = "Young, eyes shut, mouth open"; break;
+				case 45: expression = "Young, lowered eyelids"; break;
+				case 46: expression = "Young, lowered eyelids, closed mouth"; break;
+				case 47: expression = "Young, horrified, sad"; break;
+				case 48: expression = "Young, horrified, eyes shut, mouth open"; break;
+				case 49: expression = "Young, horrified, lowered eyelids"; break;
+				case 50: expression = "Young, horrified, lowered eyelids, closed mouth"; break;
+				case 51: expression = "Young, horrified, crying"; break;
+				case 52: expression = "Young, horrified, crying, eyes closed"; break;
+				case 53: expression = "Young, horrified, crying, closed mouth"; break;
 			}
 			break;
 		
@@ -6450,6 +6612,37 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 			}
 			break;
 		
+		case "11B":
+			character = "アリス"; // Child
+			switch (expressionID) {
+				case 1: expression = "Child, default"; break;
+				case 2: expression = "Child, mouth open"; break;
+				case 3: expression = "Child, closed-eyes smile"; break;
+				case 4: expression = "Child, closed-eyes smile, raised eyebrows"; break;
+				case 5: expression = "Child, surprise"; break;
+				case 6: expression = "Child, surprise, worried eyebrows"; break;
+				case 7: expression = "Child, surprise, worried eyebrows, mouth open"; break;
+				case 8: expression = "Child, small-mouth surprise"; break;
+				case 9: expression = "Child, surprise, worried eyebrows, mouth open, sweatdrop"; break;
+				case 10: expression = "Child, small-mouth surprise, sweatdrop"; break;
+				case 11: expression = "Child, angry yell"; break;
+				case 12: expression = "Child, sad, mouth closed"; break;
+			}
+			break;
+		
+		case "11C":
+			character = "アリス"; // Band
+			switch (expressionID) {
+				case 1: expression = "Band getup, gritted teeth"; break;
+				case 2: expression = "Band getup, default"; break;
+				case 3: expression = "Band getup, lowered eyebrows"; break;
+				case 4: expression = "Band getup, lowered eyebrows, mouth open"; break;
+				case 5: expression = "Band getup, lowered eyebrows, mouth slightly open"; break;
+				case 6: expression = "Band getup, wide-eyed surprise"; break;
+				case 7: expression = "Band getup, closed-eyes grin"; break;
+			}
+			break;
+		
 		case 12:
 			character = "ミシマ";
 			switch (expressionID) {
@@ -6462,6 +6655,13 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 13: expression = "Hand on chin, grin"; break;
 				case 22: expression = "Adjusting glasses, grin"; break;
 				case 25: expression = "Standing proud, happy grin"; break;
+			}
+			break;
+		
+		case 13:
+			character = "クギエ";
+			switch (expressionID) {
+				case 1: expression = "Default"; break;
 			}
 			break;
 		
@@ -6510,11 +6710,29 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 14: expression = "Gun to head"; break;
 				case 15: expression = "Gun to head, mouth open"; break;
 				case 16: expression = "Gun to head, smile"; break;
+				case 17: expression = "Young, default"; break;
+				case 18: expression = "Young, mouth open"; break;
+				case 19: expression = "Young, open-mouth smile"; break;
+				case 20: expression = "Young, raised eyebrow"; break;
+				case 21: expression = "Young, furrowed brow"; break;
+				case 22: expression = "Young, eyes closed"; break;
+				case 23: expression = "Young, tired eyes, frazzled"; break;
+				case 24: expression = "Young, tormented"; break;
+				case 25: expression = "Young, tormented, mouth open"; break;
+				case 26: expression = "Young, short-haired"; break;
+				case 27: expression = "Young, short-haired, mouth open"; break;
+				case 28: expression = "Young, tired eyes, shouting"; break;
+				case 29: expression = "Young, looking to side"; break;
+				case 30: expression = "Young, tired eyes, teeth angrily clenched"; break;
+				case 31: expression = "Young, furrowed brow, sweating"; break;
+				case 32: expression = "Young, eyes closed, sweating"; break;
+				case 33: expression = "Young, tired eyes, sweating"; break;
+				case 34: expression = "Young, closed-mouth smile"; break;
 			}
 			break;
 		
 		case 17:
-			character = "サラの父";
+			character = expressionID < 8? "サラの父" : "アルジー";
 			switch (expressionID) {
 				case 1: expression = "Default smile"; break;
 				case 2: expression = "Toothy grin"; break;
@@ -6523,14 +6741,14 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 5: expression = "Brown suit, face in shadow"; break;
 				case 6: expression = "Brown suit, eyes closed smile"; break;
 				case 7: expression = "Brown suit, hat in hand"; break;
-				case 8: character = "アルジー"; expression = "Default smile"; break;
-				case 9: character = "アルジー"; expression = "Hand on hat"; break;
-				case 10: character = "アルジー"; expression = "Hat in hand"; break;
+				case 8: expression = "Default smile"; break;
+				case 9: expression = "Hand on hat"; break;
+				case 10: expression = "Hat in hand"; break;
 			}
 			break;
 		
 		case 18:
-			character = "ノエル";
+			character = expressionID < 10? "ノエル" : "セイ";
 			switch (expressionID) {
 				case 1: expression = "Smile sign"; break;
 				case 2: expression = "Ice cream over mouth"; break;
@@ -6541,6 +6759,31 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 7: expression = "Smile sign, swirly eyes"; break;
 				case 8: expression = "Blank eyes sign"; break;
 				case 9: expression = "Looking up at hole in forehead"; break;
+				case 10: expression = "Looking straight ahead"; break;
+				case 11: expression = "Default grin"; break;
+				case 12: expression = "Closed-eyes grin"; break;
+				case 13: expression = "Closed-eyes smile"; break;
+				case 14: expression = "Surprise"; break;
+				case 15: expression = "Angry"; break;
+				case 16: expression = "Half-closed eyes, looking straight ahead"; break;
+				case "16B": expression = "Half-closed eyes"; break;
+				case 17: expression = "Surprise, sweatdrop"; break;
+				case 18: expression = "Closed eyes, gritted teeth"; break;
+				case "18B": expression = "Closed eyes, mouth open"; break;
+				case 19: expression = "Closed eyes, gritted teeth, worried eyebrows"; break;
+				case 20: expression = "Lowered eyebrows, mouth open"; break;
+				case "20B": expression = "Sad eyebrows, mouth closed"; break;
+				case 21: expression = "Baggy eyes, lowered eyebrows, mouth closed"; break;
+				case "21B": expression = "Baggy eyes, lowered eyebrows, mouth open"; break;
+				case 22: expression = "Baggy eyes, lowered eyebrows, mouth open, sweating"; break;
+				case 23: expression = "Baggy eyes, lowered eyebrows, mouth closed, sweating"; break;
+				case 24: expression = "Surprise, raised eyebrows"; break;
+				case 25: expression = "Half-closed eyes, raised eyebrows"; break;
+				case 26: expression = "Crying, mouth closed"; break;
+				case 27: expression = "Crying, mouth open"; break;
+				case 28: expression = "Crying, mouth closed, lowered eyebrows"; break;
+				case 29: expression = "Half-closed eyes surprise, raised eyebrows"; break;
+				case 30: expression = "Baggy eyes, lowered eyebrows, grin, sweating"; break;
 			}
 			break;
 		
@@ -6576,6 +6819,14 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 31: expression = "Smug smirk with grave look"; break;
 				case 32: expression = "Gripping arm with sweat, closed-eyes grin"; break;
 				case 33: expression = "Head bowed"; break;
+				case "a0": expression = "Headless (for head spin)"; break;
+				case "a1": expression = "Head 1 for spin (forward)"; break;
+				case "a2": expression = "Head 2 for spin"; break;
+				case "a3": expression = "Head 3 for spin"; break;
+				case "a4": expression = "Head 4 for spin"; break;
+				case "a5": expression = "Head 5 for spin"; break;
+				case "a6": expression = "Head 6 for spin"; break;
+				case "a7": expression = "Head 7 for spin"; break;
 			}
 			break;
 		
@@ -6608,6 +6859,131 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 3: expression = "Closed-eye smile"; break;
 				case 4: expression = "Surprise"; break;
 				case 99: expression = "Hallucination"; break;
+			}
+			break;
+		
+		case 24:
+			character = "リョーコ";
+			switch (expressionID) {
+				case 1: expression = "Default"; break;
+				case 2: expression = "Smile, mouth open"; break;
+				case 3: expression = "Surprise"; break;
+				case 4: expression = "Smile"; break;
+				case 5: expression = "Determined eyebrows"; break;
+				case 6: expression = "Weary look"; break;
+				case 7: expression = "Closed-eye smile"; break;
+				case 8: expression = "Weary look, furrowed brows"; break;
+				case 9: expression = "Weary look, furrowed brows, mouth closed"; break;
+				case 10: expression = "Weary look, slightly upturned brow"; break;
+				case 11: expression = "Winking smile"; break;
+				case 12: expression = "Concerned"; break;
+				case 13: expression = "Concerned, raised eyebrow"; break;
+				case 14: expression = "Concerned, lowered eyelids"; break;
+				case 15: expression = "Concerned, glancing to side"; break;
+				case 16: expression = "Concerned, half-closed eyelids"; break;
+				case 17: expression = "Concerned, half-closed eyelids, glancing to side"; break;
+				case 18: expression = "Concerned, half-closed eyelids, glancing to side, mouth closed"; break;
+				case 19: expression = "Concerned, half-closed eyelids, glancing to side, lowered eyebrow"; break;
+				case 20: expression = "Concerned, mouth closed"; break;
+				case 21: expression = "Concerned, slightly lowered brow"; break;
+			}
+			break;
+		
+		case 25:
+			character = "ピエロ";
+			switch (expressionID) {
+				case 1: expression = "Default"; break;
+				case 2: expression = "Default (facing left)"; break;
+				case 3: expression = "Maskless, furrowed brow"; break;
+				case 4: expression = "Maskless, sad look"; break;
+				case 5: expression = "Maskless, surprised"; break;
+				case 6: expression = "Maskless, closed-eyes smile"; break;
+				case 7: expression = "Costumeless, surprised"; break;
+				case 8: expression = "Costumeless, mouth closed"; break;
+				case 9: expression = "Costumeless, wide-eyed sweatdrop"; break;
+			}
+			break;
+		
+		case 26:
+			character = "劇団の女性";
+			switch (expressionID) {
+				case 1: expression = "Default"; break;
+				case 2: expression = "Mouth open"; break;
+				case 3: expression = "Glancing to side"; break;
+				case 4: expression = "Slight blush"; break;
+				case 5: expression = "Angry eyebrows"; break;
+			}
+			break;
+		
+		case 27:
+			character = "牙城";
+			switch (expressionID) {
+				case 1: expression = "Eyes looking to side"; break;
+				case 2: expression = "Default"; break;
+				case 3: expression = "Slightly-widened eye"; break;
+				case 4: expression = "Slightly-widened eye, raised eyebrows"; break;
+				case 5: expression = "Slightly-widened eye, raised eyebrows, surprised mouth"; break;
+				case 6: expression = "Slightly-widened eye, big grin"; break;
+				case 7: expression = "Slightly-widened eye, worried look"; break;
+				case 8: expression = "Wide-eyed shocked shout"; break;
+				case 9: expression = "Wide-eyed shocked shout, sweating"; break;
+			}
+			break;
+		
+		case 28:
+			character = "ウニボーズ";
+			switch (expressionID) {
+				case 1: expression = "Default"; break;
+				case 2: expression = "Blush"; break;
+				case 4: expression = "Ominous shadowing"; break;
+				case 5: expression = "Deathly glare"; break;
+				case 6: expression = "Sweating"; break;
+				case 7: expression = "Ominous shadowing, sweating"; break;
+			}
+			break;
+		
+		case 29:
+			character = "コブシ";
+			switch (expressionID) {
+				case 1: expression = "Default"; break;
+				case 2: expression = "Mouth open"; break;
+				case 3: expression = "Slight grin"; break;
+				case 4: expression = "Slight frown"; break;
+				case 5: expression = "Small-mouth frown"; break;
+				case 6: expression = "Wide grin, lowered eyelids"; break;
+				case 7: expression = "Wide grin with tongue"; break;
+				case 8: expression = "Wide grin, lowered eyebrows"; break;
+				case 9: expression = "Hand out"; break;
+				case 10: expression = "Hand out, mouth open"; break;
+				case 11: expression = "Hand out, slight grin"; break;
+				case 12: expression = "Hand out, slight frown"; break;
+				case 13: expression = "Hand out, small-mouth frown"; break;
+				case 14: expression = "Hand out, wide grin, lowered eyelids"; break;
+				case 15: expression = "Hand out, wide grin with tongue"; break;
+				case 16: expression = "Hand out, lowered eyebrows"; break;
+				case 17: expression = "Boxing"; break;
+				case 18: expression = "Boxing, mouth open"; break;
+				case 19: expression = "Boxing, slight grin"; break;
+				case 20: expression = "Boxing, slight frown"; break;
+				case 21: expression = "Boxing, small-mouth frown"; break;
+				case 22: expression = "Boxing, wide grin, lowered eyelids"; break;
+				case 23: expression = "Boxing, wide grin with tongue"; break;
+				case 24: expression = "Boxing, lowered eyebrows"; break;
+				case 25: expression = "Boxing, surprise"; break;
+				case 26: expression = "Surprise"; break;
+			}
+			break;
+		
+		case 30:
+			character = "グロイヤン";
+			switch (expressionID) {
+				case 1: expression = "Smile"; break;
+				case 2: expression = "Frown"; break;
+				case 3: expression = "Surprise"; break;
+				case 4: expression = "Lowered brow smile"; break;
+				case 5: expression = "Angry"; break;
+				case 6: expression = "Angry frown"; break;
+				case 7: expression = "Raised fist, mouth open"; break;
 			}
 			break;
 		
@@ -6784,6 +7160,44 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 40: expression = "Fatally damaged, crying, powered off"; break;
 				case 43: expression = "Fatally damaged, powered off"; break;
 				case 44: expression = "Damaged, powered off"; break;
+				case 45: expression = "Brown hair, slight surprise"; break;
+				case 46: expression = "Brown hair, slight frown"; break;
+				case 47: expression = "Brown hair, grin"; break;
+				case 48: expression = "Brown hair, mouth open"; break;
+				case 49: expression = "Brown hair, mouth open, furrowed brow"; break;
+				case 50: expression = "Brown hair, grin, furrowed brow"; break;
+				case 51: expression = "Brown hair, clenched teeth"; break;
+				case 52: expression = "Brown hair, shouting mouth"; break;
+				case 53: expression = "Boxing, slight surprise"; break;
+				case 54: expression = "Boxing, slight frown"; break;
+				case 55: expression = "Boxing, grin"; break;
+				case 56: expression = "Boxing, mouth open"; break;
+				case 57: expression = "Boxing, mouth open, furrowed brow"; break;
+				case 58: expression = "Boxing, grin"; break;
+				case 59: expression = "Boxing, clenched teeth, furrowed brow"; break;
+				case 60: expression = "Boxing, shouting mouth"; break;
+				case 61: expression = "Brown hair, grin, lowered brow"; break;
+				case 62: expression = "Brown hair, mouth open, lowered brow"; break;
+				case 63: expression = "Brown hair, closed-eyes smile"; break;
+				case 64: expression = "Brown hair, slight frown, lowered brow"; break;
+				case 65: expression = "Brown hair, slight frown, lowered brow, sweating"; break;
+				case 66: expression = "Boxing, angry"; break;
+			}
+			break;
+		
+			case "95B":
+			character = "クルマダ"; // Child
+			switch (expressionID) {
+				case 1: expression = "Child, mouth open"; break;
+				case 2: expression = "Child, grin"; break;
+				case 3: expression = "Child, clenched teeth"; break;
+				case 4: expression = "Child, mouth closed"; break;
+				case 5: expression = "Child, wide grin"; break;
+				case 6: expression = "Child, lowered brow, mouth open"; break;
+				case 7: expression = "Child, lowered brow, mouth open big"; break;
+				case 8: expression = "Child, surprise"; break;
+				case 9: expression = "Child, lowered brow, mouth open big, sweating"; break;
+				case 10: expression = "Child, lowered brow, clenched teeth, sweating"; break;
 			}
 			break;
 		
@@ -6804,6 +7218,29 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 12: expression = "Hood over half of face, worried"; break;
 				case 13: expression = "Hood over half of face, smile"; break;
 				case 14: expression = "Face buried in darkness of hood"; break;
+				case 16: expression = "School uniform, worried"; break;
+				case 17: expression = "School uniform, raised eyebrows"; break;
+				case 18: expression = "School uniform, concerned"; break;
+				case 19: expression = "School uniform, surprised"; break;
+				case 20: expression = "School uniform, smile"; break;
+				case 21: expression = "School uniform, sweating bullets, mouth closed"; break;
+				case 22: expression = "School uniform, sweating bullets, mouth open"; break;
+				case 23: expression = "School uniform, closed-eyes smile"; break;
+				case 24: expression = "School uniform, scared look, mouth closed"; break;
+				case 25: expression = "School uniform, scared look, mouth open"; break;
+				case 26: expression = "School uniform, horrified look, mouth closed"; break;
+				case 27: expression = "School uniform, horrified look, mouth open"; break;
+				case 28: expression = "Clown mask (no collar)"; break;
+				case 29: expression = "Worried (no collar)"; break;
+				case 30: expression = "Raised eyebrows (no collar)"; break;
+				case 31: expression = "Concerned (no collar)"; break;
+				case 32: expression = "Surprised (no collar)"; break;
+				case 33: expression = "Smile (no collar)"; break;
+				case 34: expression = "Scared look, mouth closed (no collar)"; break;
+				case 35: expression = "Scared look, mouth open (no collar)"; break;
+				case 36: expression = "Horrified look, mouth closed (no collar)"; break;
+				case 37: expression = "Horrified look, mouth open (no collar)"; break;
+				case 38: expression = "Closed-eyes smile (no collar)"; break;
 			}
 			break;
 		
@@ -6821,6 +7258,30 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 				case 1: character = "ボッツン"; break;
 				case 2: character = "警察の影"; break;
 				case 3: character = "男の影"; break;
+				case 4: character = "稽古の先生"; break;
+				case 5: character = "ガシューの上司"; break;
+				case 6: character = "友達"; break;
+				case 7: character = "観客男"; break;
+				case 8: character = "観客女"; break;
+				case 9: character = "２回戦のダンディ"; break;
+				case 10: character = "散歩中のおじさん"; break;
+				case 11: character = "音楽教育の男"; break;
+				case 12: character = "会長"; break;
+				case 13: character = "他の選手"; break;
+				case 14: character = "ホセ・ウラワ・Jr"; break;
+				case 15: character = "太い男"; break;
+				case 16: character = "細い男"; break;
+				case 17: character = "セクシーなお姉さん"; break;
+				case 18: character = "やんちゃなお姉さん"; break;
+				case 19: character = "司会"; break;
+				case 20: character = "シルエットなサラさん"; break;
+				case 21: character = "５回戦のバンドマン"; break;
+				case 22: character = "６回戦の陰キャ"; break;
+				case 23: character = "相手の会長"; break;
+				case 24: character = "マスコミ"; break;
+				case 25: character = "近くのお子さん"; break;
+				case 26: character = "中学生"; break;
+				case 27: character = "中学生"; break;
 			}
 			break;
 	}
@@ -6830,6 +7291,16 @@ CTE.getTalkSpriteDescription = function(picture, includeExpression = true) {
 	
 	// Use expression descriptions provided in language scripts if they exist.
 	if (includeExpression) expression = CTE.getString("TalkSpriteDescription_" + picture, expression);
+	
+	// If doing a description check, warn if name and/or description were not defined.
+	if (typeof CTE.checkingExpressionDescriptions !== "undefined" && CTE.checkingExpressionDescriptions) {
+		if (character === "") {
+			CTE.warn("Missing translation for character: " + picture, 0);
+		}
+		if (expression === "" && characterID != 999) {
+			CTE.warn("Missing translation for expression: " + picture, 0);
+		}
+	}
 	
 	var format = includeExpression && expression !== ""? CTE.getString("TalkSpriteFormatWithExpression", "{0}、{1} / {2}")
 		: CTE.getString("TalkSpriteFormatWithoutExpression", "{0} / {2}")
@@ -7036,10 +7507,10 @@ CTE.forceHorizontalBalanceBattles = function() {
 	return false;
 };
 
-// Internally convert localized game titles (i.e. "Your Turn To Die") to Japanese title for compatibility with pre-CTE saves.
+// Internally convert all known manually-set game titles (across languages and versions) to current title for save compatibility.
 CTE.DataManager_loadGlobalInfo = DataManager.loadGlobalInfo;
 DataManager.loadGlobalInfo = function() {
-	var localizedNames = [ "Your Turn To Die", "Kimi ga Shine", "Mors Tua", "다수결 데스게임" ];
+	var localizedNames = [ "多数決デスゲーム", "キミガシネ", "キミガシネsteam版", "Your Turn To Die", "Kimi ga Shine", "Mors Tua", "다수결 데스게임" ];
 	var globalInfo = CTE.DataManager_loadGlobalInfo.call(this, arguments);
 	for (var i = 1; i <= this.maxSavefiles(); i++) {
 		if (globalInfo[i] == null) continue;
@@ -7316,5 +7787,12 @@ CTE.midoriNameCheck = function(name) {
 CTE.checkNameCompleteness = function() {
 	CTE.exportingBase = true;
 	CTE.checkingNameCompleteness = true;
+	CTE.beginExportProcess();
+};
+
+// Debug function that runs export process while checking that all pictures starting with "cara" have descriptions (via commandExportHandlerPrefix).
+CTE.checkExpressionDescriptions = function() {
+	CTE.exportingBase = true;
+	CTE.checkingExpressionDescriptions = true;
 	CTE.beginExportProcess();
 };
